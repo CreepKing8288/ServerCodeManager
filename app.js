@@ -1,14 +1,26 @@
 const express = require("express");
-const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const cookieSession = require("cookie-session");
+const { MongoClient, ServerApiVersion } = require("mongodb");
 
 const app = express();
 const ROOT = __dirname;
-
-const DATA_FILE = path.join(ROOT, "codes.json");
 const ADMINS_FILE = path.join(ROOT, "admins.json");
+
+let _client;
+let _db;
+
+async function getDB() {
+    if (!_db) {
+        _client = new MongoClient(process.env.MONGODB_URI, {
+            serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true }
+        });
+        await _client.connect();
+        _db = _client.db("servercodes");
+    }
+    return _db;
+}
 
 app.set("trust proxy", 1);
 
@@ -24,38 +36,15 @@ app.use(cookieSession({
 
 app.use(express.static(path.join(ROOT, "public")));
 
-function load() {
-    if (!fs.existsSync(DATA_FILE)) {
-        const d = { codes: [], redeemed: [] };
-        fs.writeFileSync(DATA_FILE, JSON.stringify(d, null, 2));
-        return d;
-    }
-    return JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
-}
-
-function save(data) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
-
+/* code */
 function genCode() {
     return crypto.randomBytes(3).toString("hex").toUpperCase();
 }
 
-/* Admin auth helpers */
+/* Admin auth */
 
 function loadAdmins() {
-    if (!fs.existsSync(ADMINS_FILE)) return [];
-    return JSON.parse(fs.readFileSync(ADMINS_FILE, "utf-8"));
-}
-
-function saveAdmins(list) {
-    fs.writeFileSync(ADMINS_FILE, JSON.stringify(list, null, 2));
-}
-
-function hashPassword(password) {
-    const salt = crypto.randomBytes(16).toString("hex");
-    const hash = crypto.scryptSync(password, salt, 64).toString("hex");
-    return `${salt}:${hash}`;
+    return JSON.parse(require("fs").readFileSync(ADMINS_FILE, "utf-8"));
 }
 
 function verifyPassword(password, stored) {
@@ -69,13 +58,19 @@ function requireAuth(req, res, next) {
     res.status(401).json({ error: "Unauthorized" });
 }
 
+function hashPassword(password) {
+    const salt = crypto.randomBytes(16).toString("hex");
+    const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+    return `${salt}:${hash}`;
+}
+
 /* Auth routes */
 
 app.post("/api/login", (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: "Username and password required" });
     const admins = loadAdmins();
-    if (admins.length === 0) return res.status(403).json({ error: "No admin configured. Create an admins.json file in the website directory." });
+    if (admins.length === 0) return res.status(403).json({ error: "No admin configured." });
     const admin = admins.find(a => a.username === username);
     if (!admin || !verifyPassword(password, admin.password)) {
         return res.status(401).json({ error: "Invalid credentials" });
@@ -94,63 +89,108 @@ app.get("/api/me", (req, res) => {
 });
 
 /* Validate a redemption code */
-app.post("/api/validate", (req, res) => {
-    const { code, player, xuid } = req.body;
-    if (!code) return res.json({ valid: false, reason: "No code provided." });
+app.post("/api/validate", async (req, res) => {
+    try {
+        const { code, player, xuid } = req.body;
+        if (!code) return res.json({ valid: false, reason: "No code provided." });
 
-    const data = load();
-    const entry = data.codes.find((c) => c.code === code.toUpperCase());
+        const db = await getDB();
+        const entry = await db.collection("codes").findOne({ code: code.toUpperCase() });
 
-    if (!entry) return res.json({ valid: false, reason: "Invalid code." });
-    if (Date.now() > entry.expiresAt) return res.json({ valid: false, reason: "Code expired." });
+        if (!entry) return res.json({ valid: false, reason: "Invalid code." });
+        if (Date.now() > entry.expiresAt) return res.json({ valid: false, reason: "Code expired." });
 
-    if (entry.uses !== null && entry.uses <= 0) return res.json({ valid: false, reason: "Code fully redeemed." });
-    if (entry.uses !== null) entry.uses--;
+        if (entry.uses !== null && entry.uses !== undefined && entry.uses <= 0) return res.json({ valid: false, reason: "Code fully redeemed." });
 
-    data.redeemed.push({ code: code.toUpperCase(), player: player || "?", xuid: xuid || "?", at: new Date().toISOString() });
-    save(data);
-    res.json({ valid: true });
+        if (entry.uses !== null && entry.uses !== undefined) {
+            await db.collection("codes").updateOne({ code: code.toUpperCase() }, { $inc: { uses: -1 } });
+        }
+
+        await db.collection("redeemed").insertOne({
+            code: code.toUpperCase(),
+            player: player || "?",
+            xuid: xuid || "?",
+            at: new Date().toISOString()
+        });
+
+        res.json({ valid: true });
+    } catch (e) {
+        res.status(500).json({ valid: false, reason: "Server error" });
+    }
 });
 
 /* Generate a code */
-app.post("/api/generate", requireAuth, (req, res) => {
-    const months = req.body.months || 1;
-    const uses = req.body.uses ?? null;
-    const data = load();
-    const code = genCode();
-    data.codes.push({ code, createdAt: new Date().toISOString(), expiresAt: Date.now() + months * 30 * 24 * 60 * 60 * 1000, months, uses });
-    save(data);
-    res.json({ code, months, uses, command: `/setcode ${code} ${months}` });
+app.post("/api/generate", requireAuth, async (req, res) => {
+    try {
+        const months = req.body.months || 1;
+        const uses = req.body.uses ?? null;
+        const db = await getDB();
+        const code = genCode();
+        const doc = {
+            code,
+            createdAt: new Date().toISOString(),
+            expiresAt: Date.now() + months * 30 * 24 * 60 * 60 * 1000,
+            months,
+            uses: uses === null ? null : uses
+        };
+        await db.collection("codes").insertOne(doc);
+        res.json({ code, months, uses, command: `/setcode ${code} ${months}` });
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
 });
 
 /* Admin: list codes */
-app.get("/api/codes", requireAuth, (req, res) => res.json(load().codes));
+app.get("/api/codes", requireAuth, async (req, res) => {
+    try {
+        const db = await getDB();
+        const codes = await db.collection("codes").find().toArray();
+        res.json(codes);
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
 
 /* Admin: list redemptions */
-app.get("/api/redeemed", requireAuth, (req, res) => res.json(load().redeemed));
+app.get("/api/redeemed", requireAuth, async (req, res) => {
+    try {
+        const db = await getDB();
+        const list = await db.collection("redeemed").find().toArray();
+        res.json(list);
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
 
 /* Admin: delete a code */
-app.delete("/api/codes/:code", requireAuth, (req, res) => {
-    const data = load();
-    data.codes = data.codes.filter((c) => c.code !== req.params.code.toUpperCase());
-    save(data);
-    res.json({ success: true });
+app.delete("/api/codes/:code", requireAuth, async (req, res) => {
+    try {
+        const db = await getDB();
+        await db.collection("codes").deleteOne({ code: req.params.code.toUpperCase() });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
 });
 
 /* Check if a redeemed player's code has expired */
-app.post("/api/check-expired", (req, res) => {
-    const { xuid } = req.body;
-    if (!xuid) return res.json({ expired: false });
+app.post("/api/check-expired", async (req, res) => {
+    try {
+        const { xuid } = req.body;
+        if (!xuid) return res.json({ expired: false });
 
-    const data = load();
-    const redemption = data.redeemed.find((r) => r.xuid === xuid);
-    if (!redemption) return res.json({ expired: false });
+        const db = await getDB();
+        const redemption = await db.collection("redeemed").findOne({ xuid });
+        if (!redemption) return res.json({ expired: false });
 
-    const codeEntry = data.codes.find((c) => c.code === redemption.code);
-    if (!codeEntry) return res.json({ expired: true });
-    if (Date.now() > codeEntry.expiresAt) return res.json({ expired: true });
+        const codeEntry = await db.collection("codes").findOne({ code: redemption.code });
+        if (!codeEntry) return res.json({ expired: true });
+        if (Date.now() > codeEntry.expiresAt) return res.json({ expired: true });
 
-    res.json({ expired: false });
+        res.json({ expired: false });
+    } catch (e) {
+        res.status(500).json({ expired: false });
+    }
 });
 
 module.exports = app;
