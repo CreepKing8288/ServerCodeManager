@@ -1,0 +1,12 @@
+{
+    "name": "mc-monthly-codes",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "start": "node server.js"
+    },
+    "dependencies": {
+        "express": "^4.18.2",
+        "express-session": "^1.19.0"
+    }
+}

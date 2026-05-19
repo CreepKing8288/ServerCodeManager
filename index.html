@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monthly Code Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f0f1a; color: #e0e0e0; padding: 2rem; }
+        h1 { color: #ff6b35; margin-bottom: 0.5rem; }
+        h2 { color: #ff6b35; margin: 1.5rem 0 0.75rem; }
+        p { color: #888; margin-bottom: 1.5rem; }
+        .card { background: #1a1a2e; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; border: 1px solid #2a2a3e; }
+        .card h3 { color: #ff6b35; margin-bottom: 1rem; }
+        label { display: block; margin-bottom: 0.3rem; color: #aaa; font-size: 0.85rem; }
+        input, select { background: #0f0f1a; border: 1px solid #2a2a3e; color: #e0e0e0; padding: 0.6rem 0.8rem; border-radius: 6px; width: 100%; margin-bottom: 0.75rem; font-size: 0.95rem; }
+        input:focus { outline: none; border-color: #ff6b35; }
+        button { background: #ff6b35; color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: 0.95rem; font-weight: 600; }
+        button:hover { background: #e55a2b; }
+        button.secondary { background: #2a2a3e; }
+        button.secondary:hover { background: #3a3a4e; }
+        button.danger { background: #c0392b; }
+        button.danger:hover { background: #a93226; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th { text-align: left; padding: 0.6rem 0.4rem; border-bottom: 2px solid #2a2a3e; color: #ff6b35; }
+        td { padding: 0.5rem 0.4rem; border-bottom: 1px solid #1a1a2e; }
+        .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+        .badge.active { background: #27ae60; color: #fff; }
+        .badge.expired { background: #c0392b; color: #fff; }
+        .code-display { font-family: monospace; font-size: 1.2rem; background: #0f0f1a; padding: 0.3rem 0.6rem; border-radius: 4px; color: #ff6b35; letter-spacing: 1px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+        .toast { position: fixed; bottom: 2rem; right: 2rem; background: #27ae60; padding: 0.8rem 1.2rem; border-radius: 8px; display: none; }
+        .toast.error { background: #c0392b; }
+        .inline-flex { display: flex; gap: 0.5rem; align-items: center; }
+    </style>
+</head>
+<body>
+    <h1>Monthly Code Manager</h1>
+    <p>Generate and manage redemption codes for your Minecraft server.</p>
+    <div class="grid">
+        <div class="card">
+            <h3>Generate New Code</h3>
+            <label for="months">Valid for (months)</label>
+            <input type="number" id="months" value="1" min="1">
+            <label for="uses">Max redemptions (leave empty for unlimited)</label>
+            <input type="number" id="uses" placeholder="Unlimited">
+            <button onclick="generateCode()">Generate Code</button>
+            <div id="newCode" style="margin-top:1rem;display:none;">
+                <label>New Code</label>
+                <div class="code-display" id="codeDisplay"></div>
+            </div>
+        </div>
+        <div class="card">
+            <h3>Server Info</h3>
+            <label>API Endpoint</label>
+            <input type="text" value="http://your-server-ip:3000" readonly onclick="this.select()">
+            <label>In-Game API URL (config in paywall.js)</label>
+            <input type="text" value="http://your-server-ip:3000" readonly onclick="this.select()">
+            <p style="font-size:0.85rem;color:#888;margin-top:0.5rem;">Set <code>API_URL</code> in <code>scripts/form/paywall.js</code> to this server's address.</p>
+        </div>
+    </div>
+    <div class="card">
+        <h2>Active Codes</h2>
+        <table>
+            <thead>
+                <tr><th>Code</th><th>Created</th><th>Expires</th><th>Uses Left</th><th>Status</th><th>Action</th></tr>
+            </thead>
+            <tbody id="codesTable"></tbody>
+        </table>
+    </div>
+    <div class="card">
+        <h2>Redemption History</h2>
+        <table>
+            <thead>
+                <tr><th>Code</th><th>Player</th><th>XUID</th><th>Redeemed At</th></tr>
+            </thead>
+            <tbody id="redeemedTable"></tbody>
+        </table>
+    </div>
+    <div id="toast" class="toast"></div>
+    <script>
+        async function loadCodes() {
+            const res = await fetch('/api/codes');
+            const codes = await res.json();
+            const tbody = document.getElementById('codesTable');
+            tbody.innerHTML = codes.map(c => {
+                const now = Date.now();
+                const expired = now > c.expiresAt;
+                const usesText = c.usesLeft === null ? '∞' : c.usesLeft;
+                return `<tr>
+                    <td><span class="code-display">${c.code}</span></td>
+                    <td>${new Date(c.createdAt).toLocaleDateString()}</td>
+                    <td>${new Date(c.expiresAt).toLocaleDateString()}</td>
+                    <td>${usesText}</td>
+                    <td><span class="badge ${expired ? 'expired' : 'active'}">${expired ? 'Expired' : 'Active'}</span></td>
+                    <td><button class="danger" onclick="deleteCode('${c.code}')">Delete</button></td>
+                </tr>`;
+            }).join('');
+        }
+        async function loadRedeemed() {
+            const res = await fetch('/api/redeemed');
+            const list = await res.json();
+            const tbody = document.getElementById('redeemedTable');
+            tbody.innerHTML = list.slice().reverse().map(r => `<tr>
+                <td><span class="code-display">${r.code}</span></td>
+                <td>${r.player}</td>
+                <td>${r.xuid}</td>
+                <td>${new Date(r.redeemedAt).toLocaleString()}</td>
+            </tr>`).join('');
+        }
+        async function generateCode() {
+            const months = parseInt(document.getElementById('months').value) || 1;
+            const uses = document.getElementById('uses').value;
+            const body = { months };
+            if (uses) body.uses = parseInt(uses);
+            const res = await fetch('/api/generate-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            document.getElementById('codeDisplay').textContent = data.code;
+            document.getElementById('newCode').style.display = 'block';
+            showToast('Code generated: ' + data.code);
+            loadCodes();
+        }
+        async function deleteCode(code) {
+            if (!confirm('Delete code ' + code + '?')) return;
+            await fetch('/api/codes/' + code, { method: 'DELETE' });
+            showToast('Code ' + code + ' deleted');
+            loadCodes();
+        }
+        function showToast(msg, error) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = 'toast' + (error ? ' error' : '');
+            t.style.display = 'block';
+            setTimeout(() => t.style.display = 'none', 3000);
+        }
+        loadCodes();
+        loadRedeemed();
+    </script>
+</body>
+</html>
