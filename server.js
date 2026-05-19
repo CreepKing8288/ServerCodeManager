@@ -2,20 +2,23 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const session = require("express-session");
+const cookieSession = require("cookie-session");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, "codes.json");
 const ADMINS_FILE = path.join(__dirname, "admins.json");
 
+app.set("trust proxy", 1);
+
 app.use(express.json());
 
-app.use(session({
-    secret: crypto.randomBytes(32).toString("hex"),
-    resave: false,
-    saveUninitialized: false,
-    cookie: { httpOnly: true, sameSite: "strict", maxAge: 24 * 60 * 60 * 1000 }
+app.use(cookieSession({
+    name: "session",
+    secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
+    maxAge: 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    sameSite: "lax"
 }));
 
 app.use(express.static(path.join(__dirname, "public")));

@@ -159,7 +159,7 @@ async function generate(){
     const uses=$('uses').value
     const body={months};if(uses)body.uses=parseInt(uses)
     const r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    if(!r.ok){ toast('Session expired. Please login again.');checkAuth();return }
+    if(!r.ok){ const e=await r.json();toast(e.error||'Session expired. Please login again.');checkAuth();return }
     const d=await r.json()
     $('codeDisplay').textContent=d.code
     $('result').style.display='block'
