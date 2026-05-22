@@ -99,11 +99,15 @@ app.post("/api/validate", async (req, res) => {
 
         if (!entry) return res.json({ valid: false, reason: "Invalid code." });
         if (Date.now() > entry.expiresAt) return res.json({ valid: false, reason: "Code expired." });
+        if (entry.expiredByLeave) return res.json({ valid: false, reason: "Code expired due to leaving the server." });
 
         if (entry.uses !== null && entry.uses !== undefined && entry.uses <= 0) return res.json({ valid: false, reason: "Code fully redeemed." });
 
         if (entry.uses !== null && entry.uses !== undefined) {
             await db.collection("codes").updateOne({ code: code.toUpperCase() }, { $inc: { uses: -1 } });
+            if (entry.type === "temporary") {
+                await db.collection("codes").updateOne({ code: code.toUpperCase() }, { $set: { redeemed: true } });
+            }
         }
 
         await db.collection("redeemed").insertOne({
@@ -186,10 +190,29 @@ app.post("/api/check-expired", async (req, res) => {
         const codeEntry = await db.collection("codes").findOne({ code: redemption.code });
         if (!codeEntry) return res.json({ expired: true });
         if (Date.now() > codeEntry.expiresAt) return res.json({ expired: true });
+        if (codeEntry.expiredByLeave) return res.json({ expired: true });
+        if (codeEntry.uses !== null && codeEntry.uses !== undefined && codeEntry.uses <= 0) return res.json({ expired: true });
 
         res.json({ expired: false });
     } catch (e) {
         res.status(500).json({ expired: false });
+    }
+});
+
+/* Expire all codes for a Discord user who left the guild */
+app.post("/api/expire-by-discord", async (req, res) => {
+    try {
+        const { discordId } = req.body;
+        if (!discordId) return res.status(400).json({ error: "discordId required" });
+
+        const db = await getDB();
+        const result = await db.collection("codes").updateMany(
+            { discordId, expiredByLeave: { $ne: true } },
+            { $set: { expiredByLeave: true, expiredAtLeave: new Date().toISOString() } }
+        );
+        res.json({ success: true, expiredCount: result.modifiedCount });
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
     }
 });
 
