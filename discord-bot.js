@@ -86,10 +86,31 @@ client.on("interactionCreate", async (interaction) => {
         }
     }
 
+    async function findExisting(type) {
+        const db = await getDB();
+        const now = Date.now();
+        return db.collection("codes").findOne({
+            discordId: interaction.user.id,
+            type,
+            expiresAt: { $gt: now },
+            expiredByLeave: false,
+            ...(type === "temporary" ? { uses: { $gt: 0 } } : {})
+        });
+    }
+
     if (sub === "code") {
         if (!member.roles.cache.has(ROLE_MONTHLY) && !member.roles.cache.has(ROLE_TEMP)) {
             return interaction.reply({
                 content: `You need at least one of the required roles to use this command.`,
+                ephemeral: true
+            });
+        }
+
+        const existing = await findExisting("monthly");
+        if (existing) {
+            await setNickname();
+            return interaction.reply({
+                content: `You already have an active code: \`${existing.code}\`\nValid for ${existing.months} month(s).`,
                 ephemeral: true
             });
         }
@@ -121,6 +142,15 @@ client.on("interactionCreate", async (interaction) => {
         if (!member.roles.cache.has(ROLE_TEMP)) {
             return interaction.reply({
                 content: `You need the <@&${ROLE_TEMP}> role to use this command.`,
+                ephemeral: true
+            });
+        }
+
+        const existing = await findExisting("temporary");
+        if (existing) {
+            await setNickname();
+            return interaction.reply({
+                content: `You already have an active temporary code: \`${existing.code}\`\nIt expires if you leave the server.`,
                 ephemeral: true
             });
         }
