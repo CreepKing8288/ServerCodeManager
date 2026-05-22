@@ -87,9 +87,9 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (sub === "code") {
-        if (!member.roles.cache.has(ROLE_MONTHLY) || !member.roles.cache.has(ROLE_TEMP)) {
+        if (!member.roles.cache.has(ROLE_MONTHLY) && !member.roles.cache.has(ROLE_TEMP)) {
             return interaction.reply({
-                content: `You need both <@&${ROLE_MONTHLY}> and <@&${ROLE_TEMP}> roles to use this command.`,
+                content: `You need at least one of the required roles to use this command.`,
                 ephemeral: true
             });
         }
