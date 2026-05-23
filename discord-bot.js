@@ -164,7 +164,7 @@ client.on("interactionCreate", async (interaction) => {
             discordId: interaction.user.id,
             gamertag,
             createdAt: new Date().toISOString(),
-            expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+            expiresAt: Date.now() + 24 * 60 * 60 * 1000,
             uses: 1,
             redeemed: false,
             expiredByLeave: false
@@ -173,7 +173,7 @@ client.on("interactionCreate", async (interaction) => {
         await setNickname();
 
         return interaction.reply({
-            content: `Temporary code generated: \`${code}\`\nThis code can only be used once. It expires if you leave the server.`,
+            content: `Temporary code generated: \`${code}\`\nThis code can only be used once and expires in 24 hours. It also expires if you leave the server.`,
             ephemeral: true
         });
     }
