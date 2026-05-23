@@ -6,7 +6,8 @@ const TOKEN = process.env.DISCORD_BOT_TOKEN;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
 
 const ROLE_MONTHLY = "1506494998093365359";
-const ROLE_TEMP = "1507454856724484176";
+const ROLE_TEMP = "1507436459051712662";
+const ROLE_ADMIN = "1507454856724484176";
 
 if (!TOKEN || !GUILD_ID) {
     console.error("Missing DISCORD_BOT_TOKEN or DISCORD_GUILD_ID environment variables");
@@ -99,7 +100,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (sub === "code") {
-        if (!member.roles.cache.has(ROLE_MONTHLY) && !member.roles.cache.has(ROLE_TEMP)) {
+        if (!member.roles.cache.has(ROLE_MONTHLY) && !member.roles.cache.has(ROLE_ADMIN)) {
             return interaction.reply({
                 content: `You need at least one of the required roles to use this command.`,
                 ephemeral: true
@@ -139,7 +140,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (sub === "temporarycode") {
-        if (!member.roles.cache.has(ROLE_TEMP)) {
+        if (!member.roles.cache.has(ROLE_TEMP) && !member.roles.cache.has(ROLE_ADMIN)) {
             return interaction.reply({
                 content: `You need the <@&${ROLE_TEMP}> role to use this command.`,
                 ephemeral: true
