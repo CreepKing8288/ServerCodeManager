@@ -191,8 +191,6 @@ app.post("/api/check-expired", async (req, res) => {
         if (!codeEntry) return res.json({ expired: true });
         if (Date.now() > codeEntry.expiresAt) return res.json({ expired: true });
         if (codeEntry.expiredByLeave) return res.json({ expired: true });
-        if (codeEntry.uses !== null && codeEntry.uses !== undefined && codeEntry.uses <= 0) return res.json({ expired: true });
-
         res.json({ expired: false });
     } catch (e) {
         res.status(500).json({ expired: false });
