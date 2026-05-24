@@ -5,6 +5,7 @@
     "scripts": {
         "start": "node server.js",
         "bot": "node discord-bot.js",
+        "sync": "node sync-server.js",
         "vercel-build": "echo build done"
     },
     "dependencies": {

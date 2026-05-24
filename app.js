@@ -103,6 +103,11 @@ app.post("/api/validate", async (req, res) => {
 
         if (entry.uses !== null && entry.uses !== undefined && entry.uses <= 0) return res.json({ valid: false, reason: "Code fully redeemed." });
 
+        if (xuid) {
+            const alreadyRedeemed = await db.collection("redeemed").findOne({ xuid, code: code.toUpperCase() });
+            if (alreadyRedeemed) return res.json({ valid: true });
+        }
+
         if (entry.uses !== null && entry.uses !== undefined) {
             await db.collection("codes").updateOne({ code: code.toUpperCase() }, { $inc: { uses: -1 } });
             if (entry.type === "temporary") {
